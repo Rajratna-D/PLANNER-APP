@@ -63,15 +63,16 @@ P_BG    = {"Immediate": "#250810", "Important": "#251500",
 RECUR_OPTIONS = ["None", "Daily", "Weekly", "Monthly"]
 
 TAB_CFG = [
-    ("⬡", "OVERVIEW",    CYAN),
-    ("◈", "TESTS",       GOLD),
-    ("▣", "TASKS",       ORANGE),
-    ("◫", "LISTS",       BLUE),
-    ("◧", "ASSIGNMENTS", RED),
-    ("◩", "PRACTICALS",  GREEN),
-    ("⬢", "SYLLABUS",    VIOLET),
-    ("◎", "POMODORO",    PINK),
-    ("✎", "NOTES",       CYAN),
+    ("⬡", "OVERVIEW",      CYAN),
+    ("◈", "TESTS",         GOLD),
+    ("▣", "TASKS",         ORANGE),
+    ("◫", "LISTS",         BLUE),
+    ("◧", "ASSIGNMENTS",   RED),
+    ("◩", "PRACTICALS",    GREEN),
+    ("⬢", "SYLLABUS",      VIOLET),
+    ("◎", "POMODORO",      PINK),
+    ("✎", "NOTES",         CYAN),
+    ("◐", "PRODUCTIVITY",  PINK),
 ]
 
 # ── Theme palettes ────────────────────────────────────────────────────────
@@ -101,6 +102,7 @@ EMPTY_DATA = {
     "syllabus": [], "pomodoro_log": [],
     "notes": [],
     "streak": {"last_date": "", "count": 0},
+    "daily_goal": 6,
     "theme": "dark",
 }
 
@@ -456,6 +458,8 @@ class PlannerApp(ctk.CTk):
         self.tab_frames[name].pack(fill="both", expand=True)
         if name == "OVERVIEW":
             self._refresh_overview()
+        if name == "PRODUCTIVITY":
+            self._refresh_productivity()
 
     def _tick(self):
         self.clock_lbl.configure(text=datetime.now().strftime("%a %d %b %Y  •  %H:%M:%S"))
@@ -480,6 +484,7 @@ class PlannerApp(ctk.CTk):
         self._build_syllabus_tab()
         self._build_pomodoro_tab()
         self._build_notes_tab()
+        self._build_productivity_tab()
 
     # ══════════════════════════════════════════════════════════════════════
     # THEME TOGGLE
@@ -638,10 +643,10 @@ class PlannerApp(ctk.CTk):
         else:
             mk_label(right_col, "  No pending practicals", size=11, color=DIM).pack(anchor="w", padx=24, pady=6)
 
-        # Pomodoro weekly chart
+        # Spider chart on overview
         if HAS_MPL:
-            section_header(right_col, "◎  POMODOROS THIS WEEK", PINK)
-            self._ov_pomo_chart(right_col)
+            section_header(right_col, "◐  WEEKLY FOCUS RADAR", PINK)
+            self._ov_spider_chart(right_col)
 
         # Syllabus summary
         section_header(left_col, "⬢  SYLLABUS PROGRESS", VIOLET)
@@ -738,35 +743,69 @@ class PlannerApp(ctk.CTk):
 
         ctk.CTkFrame(root, fg_color="transparent", height=24).pack()
 
-    def _ov_pomo_chart(self, parent):
+    def _ov_spider_chart(self, parent):
+        """Compact spider chart for overview — this week vs last week."""
         if not HAS_MPL: return
+        import numpy as np
         today = date.today()
-        days  = [(today - timedelta(days=i)).isoformat() for i in range(6,-1,-1)]
-        labels = [(today - timedelta(days=i)).strftime("%a") for i in range(6,-1,-1)]
-        counts = []
+        day_labels = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]
         log = self.data.get("pomodoro_log", [])
-        for d in days:
-            counts.append(sum(1 for p in log if p.get("date","") == d and p.get("type","") == "work"))
 
-        fig = Figure(figsize=(4.5, 1.8), facecolor=CARD)
-        ax  = fig.add_subplot(111, facecolor=CARD)
-        bars = ax.bar(labels, counts, color=PINK, width=0.55, zorder=3)
-        for bar, val in zip(bars, counts):
-            if val:
-                ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.05,
-                        str(val), ha='center', va='bottom', color=TEXT, fontsize=7)
-        ax.set_ylim(0, max(counts + [4]))
-        ax.tick_params(colors=SUBTEXT, labelsize=8)
-        ax.spines[:].set_color(BORDER)
-        ax.yaxis.set_visible(False)
-        ax.grid(axis='y', color=BORDER, zorder=0)
-        fig.tight_layout(pad=0.5)
+        # This week (Mon=0 ... Sun=6)
+        week_start = today - timedelta(days=today.weekday())
+        this_week = []
+        last_week = []
+        for i in range(7):
+            d = (week_start + timedelta(days=i)).isoformat()
+            d2 = (week_start - timedelta(days=7) + timedelta(days=i)).isoformat()
+            this_week.append(sum(1 for p in log if p.get("date","") == d and p.get("type","") == "work"))
+            last_week.append(sum(1 for p in log if p.get("date","") == d2 and p.get("type","") == "work"))
+
+        goal = self.data.get("daily_goal", 6)
+        N = 7
+        angles = [n / float(N) * 2 * np.pi for n in range(N)]
+        angles += angles[:1]
+        this_vals = [min(v / goal, 1.0) for v in this_week] + [min(this_week[0] / goal, 1.0)]
+        last_vals = [min(v / goal, 1.0) for v in last_week] + [min(last_week[0] / goal, 1.0)]
+
+        card_bg = CARD
+        fig = Figure(figsize=(3.8, 3.2), facecolor=card_bg)
+        ax = fig.add_subplot(111, polar=True, facecolor=card_bg)
+
+        # Grid rings
+        for r in [0.25, 0.5, 0.75, 1.0]:
+            ax.plot(angles, [r]*len(angles), color=BORDER2, linewidth=0.5, linestyle="--", zorder=1)
+
+        # Last week
+        ax.plot(angles, last_vals, color=SUBTEXT, linewidth=1.5, linestyle="--", zorder=2)
+        ax.fill(angles, last_vals, color=SUBTEXT, alpha=0.08, zorder=2)
+
+        # This week
+        ax.plot(angles, this_vals, color=PINK, linewidth=2.5, zorder=3)
+        ax.fill(angles, this_vals, color=PINK, alpha=0.18, zorder=3)
+
+        # Dots on this week
+        ax.scatter(angles[:-1], this_vals[:-1], color=PINK, s=40, zorder=4)
+
+        ax.set_xticks(angles[:-1])
+        ax.set_xticklabels(day_labels, color=TEXT, fontsize=8)
+        ax.set_yticklabels([])
+        ax.set_ylim(0, 1)
+        ax.spines["polar"].set_color(BORDER)
+        ax.tick_params(pad=6)
+        fig.patch.set_alpha(0)
+        fig.tight_layout(pad=0.3)
 
         cf = ctk.CTkFrame(parent, fg_color=CARD, corner_radius=10)
         cf.pack(fill="x", padx=20, pady=6)
+        # Legend
+        leg = ctk.CTkFrame(cf, fg_color="transparent")
+        leg.pack(anchor="e", padx=12, pady=(6,0))
+        mk_label(leg, "— This week", size=9, color=PINK).pack(side="left", padx=4)
+        mk_label(leg, "-- Last week", size=9, color=SUBTEXT).pack(side="left", padx=4)
         canvas = FigureCanvasTkAgg(fig, master=cf)
         canvas.draw()
-        canvas.get_tk_widget().pack(fill="x", padx=8, pady=8)
+        canvas.get_tk_widget().pack(padx=8, pady=(0,8))
 
     # ══════════════════════════════════════════════════════════════════════
     # TESTS TAB
@@ -1639,6 +1678,263 @@ class PlannerApp(ctk.CTk):
     def _search_notes(self):
         q = self.note_search.get().strip()
         self._refresh_notes_list(filter_text=q)
+
+    # ══════════════════════════════════════════════════════════════════════
+    # PRODUCTIVITY TAB
+    # ══════════════════════════════════════════════════════════════════════
+
+    def _build_productivity_tab(self):
+        tab = self.tab_frames["PRODUCTIVITY"]
+        tab_header(tab, "◐", "PRODUCTIVITY", "Focus analytics — spider chart, scores, streaks", PINK)
+        sf = mk_scroll(tab, BG)
+        sf.pack(fill="both", expand=True)
+        self._prod_root = sf
+
+    def _refresh_productivity(self):
+        for w in self._prod_root.winfo_children():
+            w.destroy()
+        if not HAS_MPL:
+            mk_label(self._prod_root, "Install matplotlib to use this tab: pip install matplotlib",
+                     size=12, color=DIM).pack(pady=40)
+            return
+        import numpy as np
+        root  = self._prod_root
+        log   = self.data.get("pomodoro_log", [])
+        today = date.today()
+        today_iso = today.isoformat()
+        goal  = self.data.get("daily_goal", 6)
+
+        # ── Daily goal setter ──────────────────────────────────────────────
+        goal_card = ctk.CTkFrame(root, fg_color=CARD, corner_radius=12)
+        goal_card.pack(fill="x", padx=24, pady=(10,6))
+        tk.Frame(goal_card, bg=PINK, height=2).pack(fill="x")
+        gc_inner = ctk.CTkFrame(goal_card, fg_color="transparent")
+        gc_inner.pack(fill="x", padx=18, pady=12)
+        mk_label(gc_inner, "DAILY SESSION GOAL", size=10, bold=True, color=SUBTEXT).pack(side="left")
+        self._goal_entry = mk_entry(gc_inner, str(goal), 60, 30)
+        self._goal_entry.pack(side="left", padx=10)
+        mk_btn(gc_inner, "SET", self._set_daily_goal, PINK, BG, "#C04080", 60, 30, size=10).pack(side="left")
+        mk_label(gc_inner, "sessions/day", size=10, color=SUBTEXT).pack(side="left", padx=8)
+
+        # ── Today sessions & productivity score ───────────────────────────
+        today_sessions = sum(1 for p in log if p.get("date","") == today_iso and p.get("type","") == "work")
+        score = min(100, int((today_sessions / goal) * 100)) if goal else 0
+        score_color = GREEN if score >= 80 else (GOLD if score >= 50 else (ORANGE if score >= 25 else RED))
+
+        top_row = ctk.CTkFrame(root, fg_color="transparent")
+        top_row.pack(fill="x", padx=24, pady=6)
+        top_row.grid_columnconfigure(0, weight=2)
+        top_row.grid_columnconfigure(1, weight=1)
+        top_row.grid_columnconfigure(2, weight=1)
+
+        # Score card
+        sc = ctk.CTkFrame(top_row, fg_color=CARD, corner_radius=12)
+        sc.grid(row=0, column=0, sticky="nsew", padx=(0,8), ipady=10)
+        tk.Frame(sc, bg=score_color, height=2).pack(fill="x")
+        mk_label(sc, "PRODUCTIVITY SCORE", size=10, bold=True, color=SUBTEXT).pack(pady=(12,0))
+        mk_label(sc, f"{score}", size=52, bold=True, color=score_color).pack()
+        mk_label(sc, "out of 100", size=10, color=SUBTEXT).pack(pady=(0,4))
+        pb = ctk.CTkProgressBar(sc, height=8, progress_color=score_color, fg_color=BORDER)
+        pb.pack(fill="x", padx=18, pady=(0,12))
+        pb.set(score / 100)
+        grade = "EXCELLENT" if score >= 80 else ("GOOD" if score >= 60 else ("AVERAGE" if score >= 40 else "NEEDS WORK"))
+        mk_label(sc, grade, size=11, bold=True, color=score_color).pack(pady=(0,10))
+
+        # Today sessions card
+        tc = ctk.CTkFrame(top_row, fg_color=CARD, corner_radius=12)
+        tc.grid(row=0, column=1, sticky="nsew", padx=(0,8), ipady=10)
+        tk.Frame(tc, bg=PINK, height=2).pack(fill="x")
+        mk_label(tc, "TODAY", size=10, bold=True, color=SUBTEXT).pack(pady=(12,0))
+        mk_label(tc, str(today_sessions), size=40, bold=True, color=PINK).pack()
+        mk_label(tc, "sessions", size=10, color=SUBTEXT).pack()
+        mk_label(tc, f"Goal: {goal}", size=10, color=SUBTEXT).pack(pady=(4,10))
+
+        # Streak card
+        streak = self.data.get("streak", {}).get("count", 0)
+        stc = ctk.CTkFrame(top_row, fg_color=CARD, corner_radius=12)
+        stc.grid(row=0, column=2, sticky="nsew", ipady=10)
+        tk.Frame(stc, bg=ORANGE, height=2).pack(fill="x")
+        mk_label(stc, "STREAK", size=10, bold=True, color=SUBTEXT).pack(pady=(12,0))
+        mk_label(stc, str(streak), size=40, bold=True, color=ORANGE).pack()
+        mk_label(stc, "days", size=10, color=SUBTEXT).pack()
+        mk_label(stc, "consecutive", size=10, color=SUBTEXT).pack(pady=(4,10))
+
+        # ── Charts row ────────────────────────────────────────────────────
+        charts_row = ctk.CTkFrame(root, fg_color="transparent")
+        charts_row.pack(fill="x", padx=24, pady=6)
+        charts_row.grid_columnconfigure(0, weight=1)
+        charts_row.grid_columnconfigure(1, weight=1)
+
+        # LEFT: Spider chart — this week vs last week
+        spider_card = ctk.CTkFrame(charts_row, fg_color=CARD, corner_radius=12)
+        spider_card.grid(row=0, column=0, sticky="nsew", padx=(0,8))
+        tk.Frame(spider_card, bg=PINK, height=2).pack(fill="x")
+        mk_label(spider_card, "WEEKLY FOCUS RADAR", size=11, bold=True, color=PINK).pack(pady=(10,0))
+        leg_row = ctk.CTkFrame(spider_card, fg_color="transparent")
+        leg_row.pack()
+        mk_label(leg_row, "● This week", size=9, color=PINK).pack(side="left", padx=6)
+        mk_label(leg_row, "● Last week", size=9, color=SUBTEXT).pack(side="left", padx=6)
+
+        day_labels = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]
+        week_start = today - timedelta(days=today.weekday())
+        this_week, last_week = [], []
+        for i in range(7):
+            d  = (week_start + timedelta(days=i)).isoformat()
+            d2 = (week_start - timedelta(days=7) + timedelta(days=i)).isoformat()
+            this_week.append(sum(1 for p in log if p.get("date","") == d and p.get("type","") == "work"))
+            last_week.append(sum(1 for p in log if p.get("date","") == d2 and p.get("type","") == "work"))
+
+        N = 7
+        angles = [n / float(N) * 2 * np.pi for n in range(N)]
+        angles += angles[:1]
+        safe_goal = goal if goal > 0 else 1
+        this_vals = [min(v / safe_goal, 1.0) for v in this_week] + [min(this_week[0] / safe_goal, 1.0)]
+        last_vals = [min(v / safe_goal, 1.0) for v in last_week] + [min(last_week[0] / safe_goal, 1.0)]
+
+        fig1 = Figure(figsize=(4.2, 3.8), facecolor=CARD)
+        ax1  = fig1.add_subplot(111, polar=True, facecolor=CARD)
+        for r in [0.25, 0.5, 0.75, 1.0]:
+            ax1.plot(angles, [r]*len(angles), color=BORDER2, lw=0.6, ls="--", zorder=1)
+        ax1.plot(angles, last_vals, color=SUBTEXT, lw=1.5, ls="--", zorder=2)
+        ax1.fill(angles, last_vals, color=SUBTEXT, alpha=0.10, zorder=2)
+        ax1.plot(angles, this_vals, color=PINK, lw=2.8, zorder=3)
+        ax1.fill(angles, this_vals, color=PINK, alpha=0.22, zorder=3)
+        ax1.scatter(angles[:-1], this_vals[:-1], color=PINK, s=55, zorder=4, edgecolors=BG, linewidths=1.2)
+        # Day labels with session counts
+        count_labels = [f"{d}\n{v}" for d, v in zip(day_labels, this_week)]
+        ax1.set_xticks(angles[:-1])
+        ax1.set_xticklabels(count_labels, color=TEXT, fontsize=8)
+        ax1.set_yticklabels([])
+        ax1.set_ylim(0, 1)
+        ax1.spines["polar"].set_color(BORDER2)
+        ax1.tick_params(pad=8)
+        fig1.patch.set_alpha(0)
+        fig1.tight_layout(pad=0.4)
+
+        c1 = FigureCanvasTkAgg(fig1, master=spider_card)
+        c1.draw()
+        c1.get_tk_widget().pack(padx=8, pady=(4,12))
+
+        # RIGHT: Best hours chart
+        hours_card = ctk.CTkFrame(charts_row, fg_color=CARD, corner_radius=12)
+        hours_card.grid(row=0, column=1, sticky="nsew")
+        tk.Frame(hours_card, bg=CYAN, height=2).pack(fill="x")
+        mk_label(hours_card, "PEAK FOCUS HOURS", size=11, bold=True, color=CYAN).pack(pady=(10,2))
+        mk_label(hours_card, "All-time sessions by hour of day", size=9, color=SUBTEXT).pack()
+
+        hour_counts = [0] * 24
+        for p in log:
+            if p.get("type","") == "work":
+                try:
+                    h = int(p.get("time","00:00").split(":")[0])
+                    hour_counts[h] += 1
+                except: pass
+
+        # Only show 6am–midnight
+        show_hours  = list(range(6, 24))
+        show_counts = [hour_counts[h] for h in show_hours]
+        show_labels = [f"{h}" for h in show_hours]
+        max_count   = max(show_counts + [1])
+        bar_colors  = []
+        for v in show_counts:
+            ratio = v / max_count
+            if ratio >= 0.75:   bar_colors.append(PINK)
+            elif ratio >= 0.5:  bar_colors.append(VIOLET)
+            elif ratio >= 0.25: bar_colors.append(BLUE)
+            else:               bar_colors.append(BORDER2)
+
+        fig2 = Figure(figsize=(4.2, 3.8), facecolor=CARD)
+        ax2  = fig2.add_subplot(111, facecolor=CARD)
+        bars = ax2.bar(show_labels, show_counts, color=bar_colors, width=0.7, zorder=3)
+        for bar, val in zip(bars, show_counts):
+            if val:
+                ax2.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.05,
+                         str(val), ha="center", va="bottom", color=TEXT, fontsize=7)
+        ax2.set_ylim(0, max_count + 1)
+        ax2.set_xlabel("Hour of day", color=SUBTEXT, fontsize=8)
+        ax2.tick_params(colors=SUBTEXT, labelsize=7, axis="both")
+        ax2.spines["top"].set_visible(False)
+        ax2.spines["right"].set_visible(False)
+        for sp in ["bottom","left"]:
+            ax2.spines[sp].set_color(BORDER2)
+        ax2.yaxis.set_visible(False)
+        ax2.grid(axis="y", color=BORDER, zorder=0, alpha=0.5)
+        fig2.patch.set_alpha(0)
+        fig2.tight_layout(pad=0.5)
+
+        c2 = FigureCanvasTkAgg(fig2, master=hours_card)
+        c2.draw()
+        c2.get_tk_widget().pack(padx=8, pady=(4,12))
+
+        # ── Weekly comparison bar ──────────────────────────────────────────
+        cmp_card = ctk.CTkFrame(root, fg_color=CARD, corner_radius=12)
+        cmp_card.pack(fill="x", padx=24, pady=6)
+        tk.Frame(cmp_card, bg=GOLD, height=2).pack(fill="x")
+        mk_label(cmp_card, "THIS WEEK VS LAST WEEK", size=11, bold=True, color=GOLD).pack(pady=(10,4))
+
+        this_total = sum(this_week)
+        last_total = sum(last_week)
+        delta      = this_total - last_total
+        delta_col  = GREEN if delta >= 0 else RED
+        delta_str  = ("+" if delta >= 0 else "") + str(delta)
+
+        cmp_inner = ctk.CTkFrame(cmp_card, fg_color="transparent")
+        cmp_inner.pack(fill="x", padx=18, pady=(0,14))
+        cmp_inner.grid_columnconfigure(0, weight=1)
+        cmp_inner.grid_columnconfigure(1, weight=1)
+        cmp_inner.grid_columnconfigure(2, weight=1)
+
+        # This week
+        tw = ctk.CTkFrame(cmp_inner, fg_color=CARD2, corner_radius=8)
+        tw.grid(row=0, column=0, sticky="ew", padx=(0,8), ipady=8)
+        mk_label(tw, "THIS WEEK", size=9, bold=True, color=SUBTEXT).pack(pady=(8,0))
+        mk_label(tw, str(this_total), size=28, bold=True, color=PINK).pack()
+        mk_label(tw, "sessions", size=9, color=SUBTEXT).pack(pady=(0,8))
+
+        # Delta
+        dw = ctk.CTkFrame(cmp_inner, fg_color=CARD2, corner_radius=8)
+        dw.grid(row=0, column=1, sticky="ew", padx=(0,8), ipady=8)
+        mk_label(dw, "CHANGE", size=9, bold=True, color=SUBTEXT).pack(pady=(8,0))
+        mk_label(dw, delta_str, size=28, bold=True, color=delta_col).pack()
+        mk_label(dw, "vs last week", size=9, color=SUBTEXT).pack(pady=(0,8))
+
+        # Last week
+        lw = ctk.CTkFrame(cmp_inner, fg_color=CARD2, corner_radius=8)
+        lw.grid(row=0, column=2, sticky="ew", ipady=8)
+        mk_label(lw, "LAST WEEK", size=9, bold=True, color=SUBTEXT).pack(pady=(8,0))
+        mk_label(lw, str(last_total), size=28, bold=True, color=SUBTEXT).pack()
+        mk_label(lw, "sessions", size=9, color=SUBTEXT).pack(pady=(0,8))
+
+        # Per-day comparison bars
+        day_cmp = ctk.CTkFrame(cmp_card, fg_color="transparent")
+        day_cmp.pack(fill="x", padx=18, pady=(0,14))
+        for i, day in enumerate(day_labels):
+            tw_v = this_week[i]; lw_v = last_week[i]
+            dc = ctk.CTkFrame(day_cmp, fg_color="transparent")
+            dc.pack(side="left", expand=True, fill="x", padx=3)
+            mk_label(dc, day, size=8, color=SUBTEXT).pack()
+            max_v = max(tw_v, lw_v, 1)
+            # This week bar
+            bar_h_t = max(4, int((tw_v / max_v) * 50))
+            ctk.CTkFrame(dc, fg_color=PINK, width=18, height=bar_h_t,
+                         corner_radius=3).pack(pady=1)
+            # Last week bar
+            bar_h_l = max(4, int((lw_v / max_v) * 50))
+            ctk.CTkFrame(dc, fg_color=SUBTEXT, width=18, height=bar_h_l,
+                         corner_radius=3).pack(pady=1)
+            mk_label(dc, str(tw_v), size=8, bold=True, color=PINK).pack()
+
+        ctk.CTkFrame(root, fg_color="transparent", height=20).pack()
+
+    def _set_daily_goal(self):
+        try:
+            val = int(self._goal_entry.get().strip())
+            if val < 1: raise ValueError
+            self.data["daily_goal"] = val
+            save_data(self.data)
+            self._refresh_productivity()
+        except ValueError:
+            messagebox.showwarning("Invalid", "Please enter a number greater than 0.")
 
     # ══════════════════════════════════════════════════════════════════════
     # MISC
