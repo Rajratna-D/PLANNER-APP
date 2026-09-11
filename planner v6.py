@@ -217,11 +217,11 @@ def load_data():
             with open(DATA_FILE, encoding="utf-8") as f:
                 d = json.load(f)
             for k, v in EMPTY_DATA.items():
-                d.setdefault(k, v)
+                d.setdefault(k, v.copy() if isinstance(v, (list, dict)) else v)
             return d
         except Exception:
             pass
-    return {k: (v.copy() if isinstance(v, list) else dict(v)) for k, v in EMPTY_DATA.items()}
+    return {k: (v.copy() if isinstance(v, (list, dict)) else v) for k, v in EMPTY_DATA.items()}
 
 def save_data(d):
     with open(DATA_FILE, "w", encoding="utf-8") as f:
