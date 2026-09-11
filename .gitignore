@@ -1,0 +1,9 @@
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Local user data and backups
+planner_data.json
+backups/
+.vscode/
+.idea/
